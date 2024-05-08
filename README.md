@@ -1,0 +1,1 @@
+The goal of this project was to see which inflation value as an input to a Markov clustering algorithm provided clusters of proteins with the same function more often. What data is contained in each of the files is explained within the R code.
