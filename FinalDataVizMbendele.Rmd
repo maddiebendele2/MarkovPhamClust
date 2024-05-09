@@ -1,0 +1,545 @@
+---
+title: "Data Vis Final Project"
+author: "Madison Bendele"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r Libraries}
+library(ggplot2)
+library(tidyverse)
+library(dplyr)
+library(lme4)
+library(glmmTMB)
+library(MASS)
+library(DHARMa)
+library(bbmle)
+library(gridExtra)
+library(car)
+library(broom)
+library(broom.mixed)
+library(emmeans)
+
+```
+
+```{r The data}
+#phageData is all the phages 
+phageData <- read.csv("/Users/maddiebendele/Documents/GitHub/DataVisFinal/combo5.csv" )
+view(phageData)
+# data12 includes the predicted clusters from the MCL using i = 1.2 
+data12 <- read.csv("/Users/maddiebendele/Documents/GitHub/DataVisFinal/new12.csv" )
+
+# data14 includes the predicted clusters from the MCL  using i = 1.4 
+data14 <- read.csv("/Users/maddiebendele/Documents/GitHub/DataVisFinal/new14.csv")
+
+# data20 includes the predicted clusters from the MCL  using i = 2.0
+data20 <- read.csv("/Users/maddiebendele/Documents/GitHub/DataVisFinal/new2.csv")
+# data25 includes the predicted clusters from the MCL using i = 2.5
+data25 <- read.csv("/Users/maddiebendele/Documents/GitHub/DataVisFinal/new25.csv")
+
+# data30 includes the predicted clusters from the MCL using i = 3.0
+data30 <- read.csv("/Users/maddiebendele/Documents/GitHub/DataVisFinal/inflation30.csv")
+
+
+#MCL data is all if the purity score and inflation score combined
+MCLdata <- read.csv( "/Users/maddiebendele/Documents/GitHub/DataVisFinal/data4statsz2.csv")
+
+
+```
+
+```{r}
+#There is some data that had no functional category so filtered them out and found the unique phamily names to get a count.
+unique_data <- phageData %>% distinct(Phamily, functionCategory)
+filtered_data <-unique_data[trimws(unique_data$functionCategory) != "", ]
+
+```
+
+```{r Data exploration: Bar chart for protein phamily and funtion category }
+#This code is to fix the functional labels in the bar chart below
+label_lookup <- c(
+  "lysis" = "Lysis",
+  "lysogeny" = "Lysogeny ",
+  "misc" = "Miscellaneous",
+  "noKnownFunction" = "No known function",
+  "recombinationReplication" = "Recombination/Replication",
+  "structuralAssembly" = "Structural/Assembly"
+)
+# Data exploration to see the phamily count per functional category.
+ggplot(filtered_data, aes(x = functionCategory)) +
+  geom_bar(fill = "pink") +
+  labs(x = "Function Category", y = "Protein Phamily Count") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 35, hjust = 1, size = 12),  # Adjust the font size
+        axis.title.y = element_text(margin = margin(t = 15, r = 20), size = 13),
+        axis.text.y = element_text(size = 12),
+        axis.title.x = element_text(size = 13)) +  # Adjust the font size of x-axis title
+  ylim(0, max(table(filtered_data$functionCategory)) * 1.2) +  # Adjust the multiplier as needed
+  scale_x_discrete(labels = label_lookup)
+```
+
+```{r Data exploration: Density plot of # of genes in each phage}
+library(dplyr)
+library(ggplot2)
+
+# Finding the count of genes for each phage
+gene_counts <- phageData %>%
+  group_by(phagename) %>%
+  summarize(gene_count = n())
+
+# View the result
+print(gene_counts)
+
+# Density plot for the count of genes
+ggplot(gene_counts, aes(x = gene_count)) +
+  geom_density(fill = "#4B0092", alpha = 0.6) +
+  labs(x = "Number of genes in phage genomes", y = "Density") +
+  theme_classic() +
+  theme(axis.text = element_text(size = 12),
+        axis.title = element_text(size = 13),
+        axis.title.y = element_text(margin = margin(r = 20))) +
+  geom_vline(aes(xintercept = mean(gene_count)), color = "#1AFF1A", linetype = "dashed", size = 1) +
+  annotate("text", x = mean(gene_counts$gene_count), y = max(density(gene_counts$gene_count)$y) * 0.8,
+           label = paste0("Average: ", round(mean(gene_counts$gene_count))), color = "#4B0092", hjust = -0.1)
+
+```
+
+```{r}
+#Filtering out the not needed data for each id value predicted by the MCL
+
+filtered_data12 <- data12 %>%
+  dplyr::select(Phamily, id, functionCategory) 
+
+#A way to see how heterogeneous the function categories are for an id number
+result12 <- filtered_data12 %>%
+  group_by(id) %>%
+  summarise(unique_functions = n_distinct(functionCategory))
+
+
+filterdata14 <- data14 %>% dplyr::select(Phamily, id, functionCategory)
+
+result14 <- filterdata14 %>%
+  group_by(id) %>%
+  summarise(unique_functions = n_distinct(functionCategory))
+
+
+filterdata20 <- data20 %>% dplyr::select(Phamily, id, functionCategory)
+
+result20 <- filterdata20 %>%
+  group_by(id) %>%
+  summarise(unique_functions = n_distinct(functionCategory))
+
+view(result20)
+
+filterdata25 <- data25 %>% dplyr::select(Phamily, id, functionCategory)
+#Used to get number of clusters predicted by MCL
+result25 <- filterdata25 %>%
+  group_by(id) %>%
+  summarise(unique_functions = n_distinct(id))
+
+view(result25)
+
+filterdata30 <- data30 %>% dplyr::select(Phamily, id, functionCategory)
+view(filterdata30)
+#Used to get number of clusters predicted by MCL
+
+
+result30 <- filterdata30 %>%
+  group_by(id) %>%
+  summarise(unique_functions = n_distinct(id))
+
+#For each inflation value filtered out the ones labeled noKnownFunction and misc
+#since the function is ambigous
+
+filtereddata12 <- filtered_data12 %>%
+  filter(!(functionCategory %in% c("noKnownFunction", "misc")))
+
+filtered_data14 <- filterdata14 %>%
+  filter(!(functionCategory %in% c("noKnownFunction", "misc")))
+
+
+filtered_data20 <- filterdata20 %>%
+  filter(!(functionCategory %in% c("noKnownFunction", "misc")))
+
+filtered_data25 <- filterdata25 %>%
+  filter(!(functionCategory %in% c("noKnownFunction", "misc")))
+
+filtered_data30 <- filterdata30 %>%
+  filter(!(functionCategory %in% c("noKnownFunction", "misc")))
+
+```
+
+
+
+```{r Data analysis: Calculating the purity score}
+
+purity_scores122 <- filtered_data12 %>%
+  group_by(id) %>%
+  summarise(
+    total_proteins = n(),
+  # For each id find which function category has the most proteins
+    majority_class = names(which.max(table(functionCategory))),
+  #Count the number of proteins that are within the majority functional category
+    majority_class_count = max(table(functionCategory)),
+  #to get the purity score divide the majority category by the total amount of proteins in a id
+    purity_score = majority_class_count / total_proteins
+  ) %>%
+  #filtered out the instances with only one total protein since that skews the homogeneity of the data
+  filter(total_proteins > 1)
+
+#Saved the purity score as a csv
+purity1222 <- "/Users/maddiebendele/Desktop/purity1222.csv"
+write.csv(purity_scores122, file = purity1222, row.names = FALSE)
+
+#the following code is the same code as above but with the different inflation values
+
+purity_scores144 <- filtered_data14 %>%
+  group_by(id) %>%
+  summarise(
+    total_proteins = n(),
+    majority_class = names(which.max(table(functionCategory))),
+    majority_class_count = max(table(functionCategory)),
+    purity_score = majority_class_count / total_proteins
+  ) %>%
+  filter(total_proteins > 1)
+
+filterd144 <- "/Users/maddiebendele/Desktop/filterd144.csv"
+write.csv(purity_scores144, file = filterd144, row.names = FALSE)
+
+
+purity_scores200 <- filtered_data20 %>%
+  group_by(id) %>%
+  summarise(
+    total_proteins = n(),
+    majority_class = names(which.max(table(functionCategory))),
+    majority_class_count = max(table(functionCategory)),
+    purity_score = majority_class_count / total_proteins
+  ) %>%
+  filter(total_proteins > 1)
+
+filterd200 <- "/Users/maddiebendele/Desktop/filterd200.csv"
+write.csv(purity_scores200 , file = filterd200, row.names = FALSE)
+
+
+purity_scores255 <- filtered_data25 %>%
+  group_by(id) %>%
+  summarise(
+    total_proteins = n(),
+    majority_class = names(which.max(table(functionCategory))),
+    majority_class_count = max(table(functionCategory)),
+    purity_score = majority_class_count / total_proteins
+  ) %>%
+  filter(total_proteins > 1)
+
+filterd255 <- "/Users/maddiebendele/Desktop/filterd255.csv"
+write.csv(purity_scores255, file = filterd255, row.names = FALSE)
+
+
+
+purity_scores300 <- filtered_data30 %>%
+  group_by(id) %>%
+  summarise(
+    total_proteins = n(),
+    majority_class = names(which.max(table(functionCategory))),
+    majority_class_count = max(table(functionCategory)),
+    purity_score = majority_class_count / total_proteins
+  ) %>%
+  filter(total_proteins > 1)
+
+filterd300 <- "/Users/maddiebendele/Desktop/filterd300.csv"
+write.csv(purity_scores300, file = filterd300, row.names = FALSE)
+
+
+
+purity_scores33 <- filtered_data12 %>%
+  group_by(id) %>%
+  summarise(
+    total_proteins = n(),
+    majority_class = names(which.max(table(functionCategory))),
+    majority_class_count = max(table(functionCategory)),
+    purity_score = majority_class_count / total_proteins
+  ) %>%
+  filter(total_proteins > 1)
+
+```
+
+```{r Data exploration after filtering/ Data visualization}
+#The count of predicted clusters by different inflation values
+bar_chart <- MCLdata %>%
+  group_by(infilation) %>% summarise(total_id = n())
+
+#Bar chart of the number of clusters per inflation value
+ggplot(bar_chart, aes(x = infilation, y = total_id)) +
+  geom_bar(stat = "identity", fill = "lightgreen") +
+  labs(x = "Inflation value", y = "ID Count") +
+  theme_classic() +
+  theme(
+    axis.text = element_text(size = 12),  # Set font size for axis numbers
+    axis.title = element_text(size = 13),  # Set font size for axis labels
+    axis.title.y = element_text(margin = margin(r = 20)),  # Move y-axis label away from numbers
+    axis.title.x = element_text(margin = margin(t = 20))  # Move x-axis label away from values
+  ) +
+  ylim(0, max(bar_chart$total_id) * 1.2)  # Set y-
+    
+```
+
+
+
+```{r Data visualization}
+#Filter the data to pull out each inflation value
+purity12 <- MCLdata%>%
+  filter(infilation == 1.2)
+
+purity14 <- MCLdata%>%
+  filter(infilation == 1.4)
+
+purity20 <- MCLdata%>%
+  filter(infilation == 2)
+
+purity25 <- MCLdata%>%
+  filter(infilation == 2.5)
+
+purity30 <- MCLdata%>%
+  filter(infilation == 3)
+#histogram of the purity score for each inflation value 
+
+hist12 <- ggplot(data = purity12, aes(x = purity_score)) +
+  geom_histogram(binwidth = 0.1, fill = "lightblue", color = "white") +
+  labs(title = "Histogram of Purity Scores (Inflation = 1.2)",
+       x = "Purity Score",
+       y = "Frequency") +
+ theme_classic()
+
+hist14 <- ggplot(data = purity14, aes(x = purity_score)) +
+  geom_histogram(binwidth = 0.1, fill = "lightblue", color = "white") +
+  labs(title = "Histogram of Purity Scores (Inflation = 1.4)",
+       x = "Purity Score",
+       y = "Frequency") +
+ theme_classic()
+
+hist20 <- ggplot(data = purity20, aes(x = purity_score)) +
+  geom_histogram(binwidth = 0.1, fill = "lightblue", color = "white") +
+  labs(title = "Histogram of Purity Scores (Inflation = 2.0)",
+       x = "Purity Score",
+       y = "Frequency") +
+  theme_classic()
+
+hist25 <- ggplot(data = purity25, aes(x = purity_score)) +
+  geom_histogram(binwidth = 0.1, fill = "lightblue", color = "white") +
+  labs(title = "Histogram of Purity Scores (Inflation = 2.5)",
+       x = "Purity Score",
+       y = "Frequency") +
+  theme_classic()
+
+hist30 <- ggplot(data = purity30, aes(x = (purity_score))) +
+  geom_histogram(binwidth = 0.1, fill = "lightblue", color = "white") +
+  labs(title = "Histogram of Purity Scores (Inflation = 3.0)",
+       x = "Purity Score",
+       y = "Frequency") +
+  theme_classic()
+#plot the figures to see them all at once 
+  arranged_plots <- grid.arrange(hist12, hist14, hist20, hist25, hist30, ncol = 2)
+ggsave("purity_histograms.png", arranged_plots, width = 10, height = 8, dpi = 300)
+```
+
+
+
+
+
+
+
+```{r Statistical analysis}
+
+#The Poisson model
+modPos <- glm(majority_class_count ~ infilation + I(infilation^2)  + offset(log(total_proteins)),   family = poisson, data = MCLdata)
+
+#The Beta model
+modelBeta <- glmmTMB((purity_score-0.00000000001) ~ infilation + I(infilation^2) ,
+                 family = beta_family(link = "logit"), 
+                 data = MCLdata)
+
+#The Gaussian model
+modGaus1 <- glm((qlogis(purity_score-0.00000000001)) ~ infilation+I(infilation^2), data = MCLdata, family =  gaussian())
+# Seeing that the qlogis improves the distribution of the histogram
+hist(qlogis(MCLdata$purity_score))
+#Checking the AIC score to see the model
+ICtab(modPos, modGaus1, modelBeta, base = T, weights = T)
+
+#Anova for each model
+Anova(modPos)
+Anova(modelBeta)
+Anova(modGaus1)
+
+#looking at dispersion for each model
+testDispersion(modelBeta)
+testDispersion(modPos)
+testDispersion(modGaus1)
+
+#DHARMa package for the residuals
+simulateResiduals(fittedModel = modelBeta)
+simulationOutputB <-simulateResiduals(fittedModel = modelBeta)
+simulationOutputP<-simulateResiduals(fittedModel = modPos)
+simulationOutputG<-simulateResiduals(fittedModel = modGaus1)
+
+#Visualize the residuals 
+plotB <- plot(simulationOutputB)
+plotP <- plot(simulationOutputP)
+plotG <- plot(simulationOutputG)
+
+
+#Running the models but with inflation as category
+# Poisson with categorical
+modPosCat <- glm(majority_class_count ~ as.factor(infilation) + offset(log(total_proteins)),   family = poisson, data = MCLdata)
+# Beta with categorical
+modelBetaCat <- glmmTMB((purity_score-0.00000000001) ~ as.factor(infilation),
+                 family = beta_family(link = "logit"), 
+                 data = MCLdata)
+# Gaussian with categorical
+modGausCat <- glm((qlogis(purity_score-0.00000000001)) ~ as.factor(infilation), data = MCLdata, family =  gaussian())
+#The AIC score for each model 
+ICtab(modPosCat,modelBetaCat,modGausCat)
+#Anovas for each model
+Anova(modelBetaCat)
+Anova(modPosCat)
+Anova(modGausCat)
+
+simulationOutputB1 <-simulateResiduals(fittedModel = modelBetaCat)
+simulationOutputP1<-simulateResiduals(fittedModel = modPosCat)
+simulationOutputG1<-simulateResiduals(fittedModel = modGausCat )
+
+#Visualize the residuals 
+plotB <- plot(simulationOutputB1)
+plotP <- plot(simulationOutputP1)
+plotG <- plot(simulationOutputG1)
+
+summary(modelBetaCat)
+
+# Calculating the confidence intervals for the coefficients the Beta
+confint(modelBetaCat)
+#  Simulated the residuals from the beta 
+simulationOutputBCat<-simulateResiduals(fittedModel = modelBetaCat)
+# A diagnostic plot of the simulated residuals
+plot(simulationOutputBCat)
+#This line conducts a test for overdispersion or underdispersion 
+testDispersion(modelBetaCat)
+
+
+#mixed broom package glms factor plotting catagorical means and confidence intervals 
+modelBetaCat0 <- glmmTMB((purity_score-0.00000000001) ~ 0+as.factor(infilation),
+                 family = beta_family(link = "logit"), 
+                 data = MCLdata)
+# Output summaries of the model
+summary(modelBetaCat0)
+Anova(modelBetaCat0)
+
+# The fixed effects coefficients from the fitted model object
+fixef(modelBetaCat0)
+# The confidence intervals for the fixed effects 
+plogis(confint(modelBetaCat0))
+
+#Puts the data in the tidy format
+tidy(modelBetaCat0, conf.int=T)
+
+#Get the confidence intervals for the beta 
+modcoef2 <- tidy(modelBetaCat0, conf.int = TRUE)
+
+
+# Transform the coefficients, conf.low, and conf.high using the inverse logit function
+modcoef2$estimate_transformed <- exp(modcoef2$estimate) / (1 + exp(modcoef2$estimate))
+modcoef2$conf.low_transformed <- exp(modcoef2$conf.low) / (1 + exp(modcoef2$conf.low))
+modcoef2$conf.high_transformed <- exp(modcoef2$conf.high) / (1 + exp(modcoef2$conf.high))
+
+#Final plot that shows the estimated coefficients and their confidence intervals for different levels of the infilation variable in the beta regression model 
+finalPlot <- ggplot(modcoef2, aes(term, estimate_transformed)) +
+geom_point() +
+geom_pointrange(aes(ymin = conf.low_transformed, ymax = conf.high_transformed)) +
+labs(x = "Inflation value", y = "Purity score") +
+scale_x_discrete(labels = c("as.factor(infilation)1.2" = "Inflation 1.2",
+"as.factor(infilation)1.4" = "Inflation 1.4",
+"as.factor(infilation)2" = "Inflation 2.0",
+"as.factor(infilation)2.5" = "Inflation 2.5",
+"as.factor(infilation)3" = "Inflation 3.0")) +
+theme_classic(base_size = 14) +
+theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 12), # Adjusted axis label font size
+axis.title.x = element_text(margin = margin(t = 20), size = 14), # Adjusted x-axis title font size
+axis.text.y = element_text(size = 12), # Adjusted axis label font size
+axis.title.y = element_text(margin = margin(r = 20), size = 14)) 
+
+finalPlot
+#Save the final plot
+ggsave("finalPlot2.png", finalPlot, width = 10, height = 8, dpi = 300)
+```
+
+
+
+
+
+```{r A better look at the coeffients for each inflation score}
+
+model_summary <- summary(modelBetaCat0)
+
+model_summary
+Anova(modelBetaCat0)
+coefficients <- model_summary$coefficients$cond
+
+# Applied the inverse logit transformation to the coefficients
+transformed_coefficients <- plogis(coefficients[, "Estimate"])
+
+# Created a data frame with the transformed coefficients
+transformed_df <- data.frame(
+  term = rownames(coefficients),
+  estimate_transformed = transformed_coefficients
+)
+
+print(transformed_df)
+```
+
+```{r Post-hoc analysis using bonferroni}
+
+# The marginal means for the infilation factor
+emmeans_inf <- emmeans(modelBetaCat0, "infilation")
+
+# Pairwise comparisons using Bonferroni correction
+pairs_inf <- pairs(emmeans_inf, adjust = "bonferroni")
+
+
+print(pairs_inf)
+```
+
+ Final reflections (10 pts): Address the following questions in numbered format
+1. Rank your visualizations from 1-5 (or more) in the order in which you
+would like them to be evaluated
+I will rank them based on how they are labeled in the StoryMap
+Figure 13
+Figure 4
+Figure 5
+Figure 9
+2. Which visualizations, if any, were you most pleased with creating and
+Why?
+I was most pleased with creating Figure 13 because the process of getting there was the most challenging, since I had to back transform the data and figure out I needed to use the mixed broom package. I am also pleased with how the density plot looks (Figure 4) and the dotted line that shows the average density.
+3. Did you have any issues accessing the data for your project? How did
+you resolve these? Thankfully my lab has a great API for all the data so getting it was easy. 
+4. How did your project topic evolve from what you first envisioned, and
+Why? At first I wanted to include nucleotide sequence similarity based on BLAST hits but I essentially ran out of time getting that data together. I also learned about the MCL clustering algorithm and wanted to see if there was a statistical way to analyze which inflation value I should use.
+5. Did you have issues related to any analyses that you performed, the
+timeline of the project, your computer or other tools necessary, etc?
+How did you resolve or workaround these issues?
+I definitely ran into some trouble analyzing the data because I really struggle with the statistics. I haven't had stats since a 4 week summer course during 2020, so I came into this class with basically no knowledge which was frustrating. As I got help from Dr. Brown and kept trying different things through trial and error. I learned a lot and was able to perform the analysis.  
+6. If you had more time, what would you change (e.g., things you might
+add or remove)?
+I believe I would change the overall research question. I don’t think this was the best way to analyze this type of clustering algorithm. What I wish I could have done is compare the clustering algorithm to lab determine operons so that I could run a statistical analysis of which inflation value was more accurate at clustering the genes when compared to laboratory ones. Comparing the MCL algorithm to itself was a bit confusing which made the statistical analysis less clear to me. 
+7. Are you happy with the final results of your project?
+I am pleased with the final results despite the statistical models not being a very good fit to the data. I am excited I was able to cluster the genes and technically answer my research question of which inflation clusters groups of genes that have similar functions together more often. I also learned a lot about statistics through this process which was rewarding. 
+8. May I use your project and/or visualizations as an example for later
+classes? If so, would you like me to redact your name?
+You are welcome to share the project and you don’t have to redact my name.
+9. What advice would you give to future students taking this course?
+The advice I would give students in this course is to really try to brush up on statistics before taking the course, because understanding the statistics will help you visualize your data better. I would also tell them to be patient with themselves and that it is a learning process and you don’t have to understand everything instantly. Reach out for help when you need it from either Dr. Brown or others in your class, statistics is more fun when you talk through problems together.
+
+
+
+
+
+
+
+
+
